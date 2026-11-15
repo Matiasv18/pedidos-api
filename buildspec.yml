@@ -1,0 +1,31 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+    commands:
+      - pip install -r requirements.txt -r requirements-dev.txt
+  build:
+    commands:
+      - pytest -v --junitxml=reports/junit.xml
+  post_build:
+    commands:
+      - echo "Pruebas y build completados"
+
+reports:
+  pytest-reports:
+    files:
+      - junit.xml
+    base-directory: reports
+    file-format: JUNITXML
+
+artifacts:
+  files:
+    - app/**/*
+    - requirements.txt
+    - Procfile
+
+cache:
+  paths:
+    - /root/.cache/pip/**/*
