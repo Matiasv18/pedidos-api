@@ -1,0 +1,82 @@
+name: CI-CD pedidos-api
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  AWS_REGION: us-east-1
+  APP_NAME: pedidos-api
+  BUCKET: pedidos-pipeline-matiasv18
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Instalar dependencias
+        run: |
+          pip install -r requirements.txt
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Ejecutar pruebas
+        run: pytest -v
+
+      - name: Empaquetar aplicación
+        run: zip -r app.zip app requirements.txt Procfile
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paquete
+          path: app.zip
+
+  deploy-test:
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: paquete
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Subir a S3 y desplegar en pedidos-test
+        run: |
+          aws s3 cp app.zip s3://$BUCKET/app-${{ github.sha }}.zip
+          aws elasticbeanstalk create-application-version \
+            --application-name $APP_NAME \
+            --version-label ${{ github.sha }} \
+            --source-bundle S3Bucket=$BUCKET,S3Key=app-${{ github.sha }}.zip
+          aws elasticbeanstalk update-environment \
+            --environment-name pedidos-test \
+            --version-label ${{ github.sha }}
+
+  deploy-prod:
+    needs: deploy-test
+    runs-on: ubuntu-latest
+    environment: produccion
+    steps:
+      - uses: actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Desplegar en pedidos-prod
+        run: |
+          aws elasticbeanstalk update-environment \
+            --environment-name pedidos-prod \
+            --version-label ${{ github.sha }}
